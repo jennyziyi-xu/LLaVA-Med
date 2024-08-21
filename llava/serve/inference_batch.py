@@ -1,4 +1,3 @@
-import argparse
 import torch
 
 from llava.constants import IMAGE_TOKEN_INDEX, DEFAULT_IMAGE_TOKEN, DEFAULT_IM_START_TOKEN, DEFAULT_IM_END_TOKEN
@@ -19,6 +18,30 @@ import sys
 import ast
 
 
+# --- Launch Model --- 
+model_path='/n/scratch/users/j/jex451/llava-med-v1.5-mistral-7b'
+model_base='/n/scratch/users/j/jex451/llava-med-v1.5-mistral-7b'
+device='cuda:1'
+max_new_tokens=512
+load_8bit=False
+load_4bit=False
+
+disable_torch_init()
+model_name = get_model_name_from_path(model_path)
+tokenizer, model, image_processor, context_len = load_pretrained_model(model_path, model_base, model_name, load_8bit, load_4bit, device=device)
+
+
+# --- Define hyperparams ---
+
+# TODO: change these. 
+temperature=0
+number_samples = 1
+
+input_csv = "/home/jex451/data/medversa/test_mimic_processed.csv" 
+pre_path = "/n/data1/hms/dbmi/rajpurkar/lab/datasets/cxr/MIMIC-CXR/raw_jpg/files/"
+inp_prompt = "You are an AI assistant specialized in biomedical topics. Describe the given chest X-ray images in detail."
+
+
 def load_image(image_file):
     if image_file.startswith('http://') or image_file.startswith('https://'):
         response = requests.get(image_file)
@@ -28,57 +51,32 @@ def load_image(image_file):
     return image
 
 
-def main(args):
-    # Model
-    disable_torch_init()
-
-    model_name = get_model_name_from_path(args.model_path)
-    tokenizer, model, image_processor, context_len = load_pretrained_model(args.model_path, args.model_base, model_name, args.load_8bit, args.load_4bit, device=args.device)
-
+def inference(images_path):
     conv_mode = "mistral_instruct"
-
-    if args.conv_mode is not None and conv_mode != args.conv_mode:
-        print('[WARNING] the auto inferred conversation mode is {}, while `--conv-mode` is {}, using {}'.format(conv_mode, args.conv_mode, args.conv_mode))
-    else:
-        args.conv_mode = conv_mode
-
-    conv = conv_templates[args.conv_mode].copy()
+    conv = conv_templates[conv_mode].copy()
     if "mpt" in model_name.lower():
         roles = ('user', 'assistant')
     else:
         roles = conv.roles
-    
-    
-    images_path = ast.literal_eval(args.image_file)
+
     number_images = len(images_path)
-    print("number_images", number_images)
     images = [load_image(image) for image in images_path]
-    # Similar operation in model_worker.py
+
     image_tensor = process_images(images, image_processor, model.config)
 
-    # print("type", type(image_tensor))
-    # print("size", image_tensor.shape)
-    # type <class 'torch.Tensor'>
-    # size torch.Size([1, 3, 336, 336])
-    
-
     image_tensor = image_tensor.to(model.device, dtype=torch.float16)
-
-    inp = "You are an AI assistant specialized in biomedical topics. Describe the given chest X-ray image in detail."
-
-    print(f"{roles[1]}: ", end="")
 
     if images is not None:
         # first message
         if model.config.mm_use_im_start_end:
-            inp = DEFAULT_IM_START_TOKEN + DEFAULT_IMAGE_TOKEN + DEFAULT_IM_END_TOKEN + '\n' + inp
+            inp = DEFAULT_IM_START_TOKEN + DEFAULT_IMAGE_TOKEN + DEFAULT_IM_END_TOKEN + '\n' + inp_prompt
         else:
-            inp = DEFAULT_IMAGE_TOKEN * number_images + '\n' + inp
+            inp = DEFAULT_IMAGE_TOKEN * number_images + '\n' + inp_prompt
         conv.append_message(conv.roles[0], inp)
         images = None
     else:
-        # later messages
-        conv.append_message(conv.roles[0], inp)
+        print("images is None. Error.")
+        exit()
     conv.append_message(conv.roles[1], None)
     prompt = conv.get_prompt()
     print("prompt",prompt)
@@ -98,9 +96,9 @@ def main(args):
         output_ids = model.generate(
             input_ids,
             images=image_tensor,
-            do_sample=True if args.temperature > 0.001 else False,
-            temperature=args.temperature,
-            max_new_tokens=args.max_new_tokens,
+            do_sample=True if temperature > 0.001 else False,
+            temperature=temperature,
+            max_new_tokens=max_new_tokens,
             streamer=streamer,
             use_cache=True,
             # stopping_criteria=[stopping_criteria],
@@ -109,23 +107,13 @@ def main(args):
     # reset stdout
     output = sys.stdout.getvalue()
     sys.stdout = old_stdout
-    print("Output====", output)
-
-    if args.debug:
-        print("\n", {"prompt": prompt, "outputs": outputs}, "\n")
+    return output
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--model-path", type=str, default="facebook/opt-350m")
-    parser.add_argument("--model-base", type=str, default=None)
-    parser.add_argument("--image-file", required=True)
-    parser.add_argument("--device", type=str, default="cuda")
-    parser.add_argument("--conv-mode", type=str, default=None)
-    parser.add_argument("--temperature", type=float, default=0.2)
-    parser.add_argument("--max-new-tokens", type=int, default=512)
-    parser.add_argument("--load-8bit", action="store_true")
-    parser.add_argument("--load-4bit", action="store_true")
-    parser.add_argument("--debug", action="store_true")
-    args = parser.parse_args()
-    main(args)
+    # images_path = [pre_path + "p{}/p{}/s{}/{}.jpg".format('10', '10274145', '59166131', '29ab48f7-15a14464-5b7c1cc3-3ba3aa97-64ebc637'),
+    # pre_path + "p{}/p{}/s{}/{}.jpg".format('10', '10274145', '59166131', '2cc38dd6-d1f5970f-055155bc-e9e8fccd-8ec98168')]
+    images_path = [pre_path + "p{}/p{}/s{}/{}.jpg".format('10', '10274145', '59166131', '29ab48f7-15a14464-5b7c1cc3-3ba3aa97-64ebc637')]
+    output = inference(images_path)
+    print(output)
+
