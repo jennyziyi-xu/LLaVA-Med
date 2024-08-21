@@ -12,10 +12,12 @@ import requests
 from io import BytesIO
 from transformers import TextStreamer
 
-import json
+import json, csv
 import io
 import sys
 import ast
+import os
+import pandas as pd
 
 
 # --- Launch Model --- 
@@ -35,11 +37,12 @@ tokenizer, model, image_processor, context_len = load_pretrained_model(model_pat
 
 # TODO: change these. 
 temperature=0
-number_samples = 1
+number_samples = 2
 
 input_csv = "/home/jex451/data/medversa/test_mimic_processed.csv" 
 pre_path = "/n/data1/hms/dbmi/rajpurkar/lab/datasets/cxr/MIMIC-CXR/raw_jpg/files/"
 inp_prompt = "You are an AI assistant specialized in biomedical topics. Describe the given chest X-ray images in detail."
+result_csv_path = "/home/jex451/UQ/outputs/llava_med/inferences/inference.csv"
 
 
 def load_image(image_file):
@@ -79,7 +82,7 @@ def inference(images_path):
         exit()
     conv.append_message(conv.roles[1], None)
     prompt = conv.get_prompt()
-    print("prompt",prompt)
+    
 
 
     input_ids = tokenizer_image_token(prompt, tokenizer, IMAGE_TOKEN_INDEX, return_tensors='pt').unsqueeze(0).to(model.device)
@@ -111,9 +114,38 @@ def inference(images_path):
 
 
 if __name__ == "__main__":
-    # images_path = [pre_path + "p{}/p{}/s{}/{}.jpg".format('10', '10274145', '59166131', '29ab48f7-15a14464-5b7c1cc3-3ba3aa97-64ebc637'),
-    # pre_path + "p{}/p{}/s{}/{}.jpg".format('10', '10274145', '59166131', '2cc38dd6-d1f5970f-055155bc-e9e8fccd-8ec98168')]
-    images_path = [pre_path + "p{}/p{}/s{}/{}.jpg".format('10', '10274145', '59166131', '29ab48f7-15a14464-5b7c1cc3-3ba3aa97-64ebc637')]
-    output = inference(images_path)
-    print(output)
+
+    assert not os.path.exists(result_csv_path)
+
+    # Read from a csv file
+    input_csv = pd.read_csv(input_csv)
+    f = open(result_csv_path, 'w')
+    writer_f = csv.writer(f, quoting=csv.QUOTE_MINIMAL)
+    f.write("study_id,subject_id,target\n")
+    f.flush()
+
+    # loop through each row
+    for index, row in input_csv.iterrows():
+        if (index < number_samples):
+            if (index % 20 == 0):
+                print("Index is ", index)
+            study_id = row['study_id']
+            subject_id = row['subject_id']
+            indication = row['indication']
+            list_jpgs = ast.literal_eval(row['list_jpgs'])
+            images_path = []
+
+            for dicom_id in list_jpgs:
+                image_path = pre_path + "p{}/p{}/s{}/{}.jpg".format(str(subject_id)[:2], subject_id, study_id, dicom_id)
+                images_path.append(image_path)
+            
+            # Do inference
+            
+            output_text = inference(images_path)
+            row_output = [study_id, subject_id, output_text]
+            writer_f.writerow(row_output)
+            f.flush()
+    f.close()
+
+    
 
