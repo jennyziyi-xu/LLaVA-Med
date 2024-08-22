@@ -12,18 +12,19 @@ import requests
 from io import BytesIO
 from transformers import TextStreamer
 
-import json, csv
-import io
-import sys
+import json, csv, io, sys, os
 import ast
-import os
 import pandas as pd
+
+sys.path.append(os.path.join('/home/jex451', 'UQ/'))
+from model_utils.base import *
+from scripts.uncertainty_score import * 
 
 
 # --- Launch Model --- 
 model_path='/n/scratch/users/j/jex451/llava-med-v1.5-mistral-7b'
 model_base='/n/scratch/users/j/jex451/llava-med-v1.5-mistral-7b'
-device='cuda:1'
+device='cuda'
 max_new_tokens=512
 load_8bit=False
 load_4bit=False
@@ -36,13 +37,15 @@ tokenizer, model, image_processor, context_len = load_pretrained_model(model_pat
 # --- Define hyperparams ---
 
 # TODO: change these. 
-temperature=0
-number_samples = 2
+temperature=0.5
+number_samples = 1000
 
 input_csv = "/home/jex451/data/medversa/test_mimic_processed.csv" 
 pre_path = "/n/data1/hms/dbmi/rajpurkar/lab/datasets/cxr/MIMIC-CXR/raw_jpg/files/"
 inp_prompt = "You are an AI assistant specialized in biomedical topics. Describe the given chest X-ray images in detail."
-result_csv_path = "/home/jex451/UQ/outputs/llava_med/inferences/inference.csv"
+result_csv_path = "/home/jex451/UQ/outputs/llava_med/inferences/inference_1.csv"
+logits_file_path = "/home/jex451/UQ/outputs/llava_med/logits/logits_1.csv"
+result_uq_path = "/home/jex451/UQ/outputs/llava_med/uq_scores/scores_1.csv"
 
 
 def load_image(image_file):
@@ -106,6 +109,8 @@ def inference(images_path):
             use_cache=True,
             # stopping_criteria=[stopping_criteria],
             pad_token_id=tokenizer.eos_token_id)
+        
+        write_output_tokens(logits_file_path, output_ids[0])
     
     # reset stdout
     output = sys.stdout.getvalue()
@@ -116,6 +121,7 @@ def inference(images_path):
 if __name__ == "__main__":
 
     assert not os.path.exists(result_csv_path)
+    if result_uq_path: assert not os.path.exists(result_uq_path)
 
     # Read from a csv file
     input_csv = pd.read_csv(input_csv)
@@ -123,6 +129,11 @@ if __name__ == "__main__":
     writer_f = csv.writer(f, quoting=csv.QUOTE_MINIMAL)
     f.write("study_id,subject_id,target\n")
     f.flush()
+
+    if result_uq_path:
+        f_uq = open(result_uq_path, 'w')
+        writer_uq = csv.writer(f_uq, quoting=csv.QUOTE_MINIMAL)
+        f_uq.write("data_id,study_id,subject_id,max_prob,max_prob_sentence,max_prob_token,avg_prob,avg_prob_sentence,max_entropy,max_entropy_sentence,max_entropy_token,avg_entropy,avg_entropy_sentence,token_record\n")
 
     # loop through each row
     for index, row in input_csv.iterrows():
@@ -145,7 +156,17 @@ if __name__ == "__main__":
             row_output = [study_id, subject_id, output_text]
             writer_f.writerow(row_output)
             f.flush()
+
+            if result_uq_path:
+                # Calculate uq scores. 
+                uq = get_scores(logits_file_path, dot_token=28723, tokenizer=tokenizer)
+                row = [index, study_id, subject_id]
+                row.extend(uq)
+                writer_uq.writerow(row)
+                f_uq.flush()
     f.close()
+    if result_uq_path:
+        f_uq.close()
 
     
 

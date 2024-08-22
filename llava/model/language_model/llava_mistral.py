@@ -11,6 +11,12 @@ from transformers.generation.utils import GenerateOutput
 
 from ..llava_arch import LlavaMetaModel, LlavaMetaForCausalLM
 
+import os 
+import sys
+
+sys.path.append(os.path.join('/home/jex451', 'UQ/model_utils'))
+from base import *
+
 
 class LlavaMistralConfig(MistralConfig):
     model_type = "llava_mistral"
@@ -71,6 +77,27 @@ class LlavaMistralForCausalLM(MistralForCausalLM, LlavaMetaForCausalLM):
                 images,
                 image_sizes
             )
+        
+        ###### Start of Modifications 
+        outputs = self.model(
+            input_ids=input_ids,
+            attention_mask=attention_mask,
+            position_ids=position_ids,
+            past_key_values=past_key_values,
+            inputs_embeds=inputs_embeds,
+            use_cache=use_cache,
+            output_attentions=output_attentions,
+            output_hidden_states=output_hidden_states,
+            return_dict=return_dict,
+        )
+        hidden_states = outputs[0]
+        logits = self.lm_head(hidden_states)
+
+
+
+        logits_file_path = "/home/jex451/UQ/outputs/llava_med/logits/logits_1.csv"
+        write_to_logits(logits_file_path, logits)
+        ###### End of Modifications 
 
         return super().forward(
             input_ids=input_ids,
