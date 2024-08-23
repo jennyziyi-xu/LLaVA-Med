@@ -43,9 +43,9 @@ number_samples = 1000
 input_csv = "/home/jex451/data/medversa/test_mimic_processed.csv" 
 pre_path = "/n/data1/hms/dbmi/rajpurkar/lab/datasets/cxr/MIMIC-CXR/raw_jpg/files/"
 inp_prompt = "You are an AI assistant specialized in biomedical topics. Describe the given chest X-ray images in detail."
-result_csv_path = "/home/jex451/UQ/outputs/llava_med/inferences/inference_1.csv"
-logits_file_path = "/home/jex451/UQ/outputs/llava_med/logits/logits_1.csv"
-result_uq_path = "/home/jex451/UQ/outputs/llava_med/uq_scores/scores_1.csv"
+result_csv_path = "/home/jex451/UQ/outputs/llava_med/inferences/inference_3.csv"
+logits_file_path = "/home/jex451/UQ/outputs/llava_med/logits/logits_3.csv"
+result_uq_path = "/home/jex451/UQ/outputs/llava_med/uq_scores/scores_3.csv"
 
 
 def load_image(image_file):
@@ -153,6 +153,7 @@ if __name__ == "__main__":
             # Do inference
             
             output_text = inference(images_path)
+            output_text = output_text.replace('\n', '')
             row_output = [study_id, subject_id, output_text]
             writer_f.writerow(row_output)
             f.flush()
